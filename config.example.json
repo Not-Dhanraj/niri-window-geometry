@@ -1,0 +1,27 @@
+{
+  "apps": {
+    "exclude": [],
+    "include": []
+  },
+  "enabled": true,
+  "detection": {
+    "fullscreen_tolerance_px": 2,
+    "maximized_width_tolerance_px": 32
+  },
+  "restore": {
+    "adapt_floating_position_to_output": true,
+    "adapt_to_output": true,
+    "floating_position": true,
+    "floating_state": true,
+    "fullscreen": true,
+    "maximized": true,
+    "size": true,
+    "tiled_height": true,
+    "tiled_width": true
+  },
+  "restore_delay_ms": 150,
+  "tracking": {
+    "live_save_delay_ms": 500,
+    "live_updates": true
+  }
+}
