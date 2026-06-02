@@ -3,7 +3,6 @@
 `niri-window-geometry` is a small Python daemon for
 [niri](https://github.com/YaLTeR/niri). It remembers window geometry by niri
 `app_id` and restores it when the same app opens again.
-
 niri places new windows at default sizes. If you always resize an app a
 certain way, or want an app to reopen as a floating window, this daemon
 remembers those choices and restores them automatically.
@@ -21,6 +20,12 @@ It does **not** remember workspaces. Reopened apps still appear on the current
 workspace according to normal niri behavior.
 
 The code uses only the Python standard library.
+
+## Showcase
+
+<video src="showcase/showcase.mp4" controls width="100%"></video>
+
+[Watch the showcase video](showcase/showcase.mp4)
 
 ## Requirements
 
@@ -84,7 +89,8 @@ Use a custom config path:
 python3 daemon.py --config-file /path/to/config.json
 ```
 
-Default config:
+<details>
+<summary><strong>View Default Config</strong></summary>
 
 ```json
 {
@@ -116,7 +122,12 @@ Default config:
 }
 ```
 
+</details>
+
 ## Config Keys
+
+<details>
+<summary><strong>View Config Keys</strong></summary>
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -141,7 +152,12 @@ Default config:
 Live updates change in-memory state immediately. The debounce delay only affects
 state-file writes.
 
+</details>
+
 ## Finding App IDs
+
+<details>
+<summary><strong>View Examples</strong></summary>
 
 Use niri's window list:
 
@@ -172,6 +188,11 @@ Manage everything except one app:
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><strong>Advanced Mechanics: Learning, Detection, and Output Adaptation</strong></summary>
 
 ## How Learning Works
 
@@ -238,7 +259,12 @@ Disable output adaptation if you prefer exact logical pixels:
 }
 ```
 
+</details>
+
 ## State File
+
+<details>
+<summary><strong>View State File Example</strong></summary>
 
 Default state path:
 
@@ -269,6 +295,8 @@ Example:
 
 Workspace information is intentionally absent.
 
+</details>
+
 ## Start From niri Config
 
 You can start the daemon from niri with `spawn-sh-at-startup`.
@@ -289,7 +317,7 @@ spawn-sh-at-startup "python3 ~/.local/share/niri-window-geometry/daemon.py --ver
 If `~` is not expanded on your setup, use the absolute path:
 
 ```kdl
-spawn-sh-at-startup "python3 /home/YOUR_USER/.local/share/niri-window-geometry/daemon.py"
+spawn-sh-at-startup "python3 /home/YOUR_USERNAME/.local/share/niri-window-geometry/daemon.py"
 ```
 
 Reload niri config:
@@ -399,6 +427,68 @@ rm -rf ~/.local/state/niri-window-geometry
 Keep the state directory if you plan to reinstall and want the old app sizes
 back.
 
+<details>
+<summary><strong>Troubleshooting</strong></summary>
+
+## Troubleshooting
+
+### An app is not restored
+
+Check its `app_id`:
+
+```bash
+niri msg --json windows
+```
+
+Then check `apps.include` and `apps.exclude`.
+
+Also run with `--verbose` and confirm the daemon logs:
+
+```text
+Live updates are enabled
+```
+
+### Maximized windows restore as plain large windows
+
+Increase the maximized width tolerance:
+
+```json
+{
+  "detection": {
+    "maximized_width_tolerance_px": 48
+  }
+}
+```
+
+### Fullscreen windows do not restore as fullscreen
+
+Increase the fullscreen tolerance:
+
+```json
+{
+  "detection": {
+    "fullscreen_tolerance_px": 4
+  }
+}
+```
+
+### Floating position is wrong after changing monitors
+
+Output adaptation handles most monitor size and orientation changes. If a
+floating position is still wrong, let the daemon learn the app again by moving
+or resizing that app while the daemon is running.
+
+If old state is still causing trouble, remove that app's entry from:
+
+```text
+~/.local/state/niri-window-geometry/state.json
+```
+
+</details>
+
+<details>
+<summary><strong>Development</strong></summary>
+
 ## Development
 
 ```text
@@ -443,64 +533,4 @@ python3 -m py_compile daemon.py test_daemon.py niri_window_geometry/*.py
 
 The tests use mocked niri events and do not need a live niri session.
 
-## Troubleshooting
-
-### An app is not restored
-
-Check its `app_id`:
-
-```bash
-niri msg --json windows
-```
-
-Then check `apps.include` and `apps.exclude`.
-
-Also run with `--verbose` and confirm the daemon logs:
-
-```text
-Live updates are enabled
-```
-
-### The daemon does not learn an already-open window
-
-Make sure `tracking.live_updates` is enabled. The default is `true`.
-
-If the app was learned before output adaptation existed, close or resize it once
-while the daemon is running so the state file gets `output_width` and
-`output_height`.
-
-### Maximized windows restore as plain large windows
-
-Increase the maximized width tolerance:
-
-```json
-{
-  "detection": {
-    "maximized_width_tolerance_px": 48
-  }
-}
-```
-
-### Fullscreen windows do not restore as fullscreen
-
-Increase the fullscreen tolerance:
-
-```json
-{
-  "detection": {
-    "fullscreen_tolerance_px": 4
-  }
-}
-```
-
-### Floating position is wrong after changing monitors
-
-Output adaptation handles most monitor size and orientation changes. If a
-floating position is still wrong, let the daemon learn the app again by moving
-or resizing that app while the daemon is running.
-
-If old state is still causing trouble, remove that app's entry from:
-
-```text
-~/.local/state/niri-window-geometry/state.json
-```
+</details>
