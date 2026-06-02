@@ -22,10 +22,9 @@ workspace according to normal niri behavior.
 The code uses only the Python standard library.
 
 ## Showcase
+https://github.com/user-attachments/assets/f52835c2-5315-4ea8-aed3-ec825e8df05c
 
-<video src="showcase/showcase.mp4" controls width="100%"></video>
 
-[Watch the showcase video](showcase/showcase.mp4)
 
 ## Requirements
 
