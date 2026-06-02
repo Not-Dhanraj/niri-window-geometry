@@ -1,13 +1,24 @@
 # niri-window-geometry
 
-`niri-window-geometry` is a small helper daemon for
-[niri](https://github.com/YaLTeR/niri). It remembers how an app looked when you
-closed it and applies that geometry the next time the same app opens.
+`niri-window-geometry` is a small Python daemon for
+[niri](https://github.com/YaLTeR/niri). It remembers window geometry by niri
+`app_id` and restores it when the same app opens again.
 
-The daemon keys state by niri `app_id`. It deliberately does not remember
-workspaces, so apps still open wherever niri would normally put them. What it
-does remember is the useful window state around that app: tiled size, floating
-state, floating position, maximized column state, and fullscreen state.
+niri places new windows at default sizes. If you always resize an app a
+certain way, or want an app to reopen as a floating window, this daemon
+remembers those choices and restores them automatically.
+
+The daemon remembers useful per-app window state:
+
+- tiled width and height
+- floating state
+- floating position
+- maximized column state
+- fullscreen state
+- the output size where the geometry was learned
+
+It does **not** remember workspaces. Reopened apps still appear on the current
+workspace according to normal niri behavior.
 
 The code uses only the Python standard library.
 
@@ -17,7 +28,7 @@ The code uses only the Python standard library.
 - Python 3.10 or newer
 - a running niri session
 
-This was developed against niri `26.04`.
+This project was developed against niri `26.04`.
 
 ## Install
 
@@ -26,19 +37,18 @@ Clone the repository somewhere stable. The examples below use
 
 ```bash
 mkdir -p ~/.local/share
-git clone <repo-url> ~/.local/share/niri-window-geometry
+git clone https://github.com/Not-Dhanraj/niri-window-geometry.git ~/.local/share/niri-window-geometry
 cd ~/.local/share/niri-window-geometry
 ```
 
-Replace `<repo-url>` with this repository's Git URL.
 
-Try it from a terminal inside niri:
+Run it once from a terminal inside niri:
 
 ```bash
 python3 daemon.py --verbose
 ```
 
-The daemon writes state the first time it learns an app:
+The daemon writes learned state here:
 
 ```text
 ~/.local/state/niri-window-geometry/state.json
@@ -46,7 +56,8 @@ The daemon writes state the first time it learns an app:
 
 ## Configuration
 
-Config is optional. If the file is missing, defaults are used.
+Configuration is optional. If the config file is missing, the daemon uses the
+same defaults printed by `--print-default-config`.
 
 Default config path:
 
@@ -60,13 +71,20 @@ Print the default config:
 python3 daemon.py --print-default-config
 ```
 
-Use a custom config:
+Create a config file from the example:
 
 ```bash
-python3 daemon.py --config-file ~/.config/niri-window-geometry/config.json
+mkdir -p ~/.config/niri-window-geometry
+cp config.example.json ~/.config/niri-window-geometry/config.json
 ```
 
-Example config:
+Use a custom config path:
+
+```bash
+python3 daemon.py --config-file /path/to/config.json
+```
+
+Default config:
 
 ```json
 {
@@ -74,11 +92,11 @@ Example config:
     "exclude": [],
     "include": []
   },
-  "enabled": true,
   "detection": {
     "fullscreen_tolerance_px": 2,
     "maximized_width_tolerance_px": 32
   },
+  "enabled": true,
   "restore": {
     "adapt_floating_position_to_output": true,
     "adapt_to_output": true,
@@ -98,88 +116,32 @@ Example config:
 }
 ```
 
-### Config Keys
+## Config Keys
 
-`enabled`
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `true` | Turns the daemon on or off without changing autostart setup. |
+| `restore_delay_ms` | `150` | Delay before applying restore commands after a window opens. |
+| `apps.include` | `[]` | App IDs to manage. Empty means all apps unless excluded. |
+| `apps.exclude` | `[]` | App IDs to ignore. Useful for apps where restore feels wrong. |
+| `tracking.live_updates` | `true` | Learns geometry from open windows as their layouts change. |
+| `tracking.live_save_delay_ms` | `500` | Debounces state-file writes after live layout changes. Use `0` to write immediately. |
+| `restore.size` | `true` | Enables width and height restore. |
+| `restore.tiled_width` | `true` | Restores tiled width. Best effort because niri has no `--id` for column width. |
+| `restore.tiled_height` | `true` | Restores tiled height. |
+| `restore.floating_state` | `true` | Restores whether the app was tiled or floating. |
+| `restore.floating_position` | `true` | Restores saved floating X/Y position. |
+| `restore.maximized` | `true` | Restores maximized tiled columns with `maximize-column`. Best effort because niri has no `--id` for this action. |
+| `restore.fullscreen` | `true` | Restores fullscreen windows with `fullscreen-window`. |
+| `restore.adapt_to_output` | `true` | Scales normal-window size from the learned output to the current output. |
+| `restore.adapt_floating_position_to_output` | `true` | Scales floating X/Y position during output adaptation and clamps it inside the current output. |
+| `detection.fullscreen_tolerance_px` | `2` | Pixel tolerance for fullscreen detection. |
+| `detection.maximized_width_tolerance_px` | `32` | Pixel tolerance for maximized-column detection. |
 
-Turns the daemon on or off without changing your autostart setup.
+Live updates change in-memory state immediately. The debounce delay only affects
+state-file writes.
 
-`restore_delay_ms`
-
-How long to wait after a window opens before applying restore commands. A small
-delay helps with apps that resize themselves immediately after launch.
-
-`tracking.live_updates`
-
-Learns geometry from open windows as their layouts change, instead of waiting
-until the window closes. With this on, resizing one open app window can affect
-the next window of the same `app_id` that opens.
-
-`tracking.live_save_delay_ms`
-
-How long to debounce state-file writes after live layout changes. The daemon
-updates its in-memory state immediately, so same-session restores do not wait
-for this delay.
-
-`apps.include`
-
-An allowlist of app IDs. Leave it empty to manage all apps unless they are
-excluded.
-
-`apps.exclude`
-
-A blocklist of app IDs. This is useful for apps where geometry restore feels
-wrong or gets in the way.
-
-`restore.size`
-
-Enables width and height restore.
-
-`restore.adapt_to_output`
-
-Scales restored sizes from the output where the geometry was learned to the
-output where the window opens. This helps when moving between landscape,
-portrait, 1080p, 2K, or mixed-scale monitor layouts.
-
-`restore.adapt_floating_position_to_output`
-
-Scales floating X/Y position along with floating size when output adaptation is
-enabled.
-
-`restore.floating_state`
-
-Restores whether the app was tiled or floating.
-
-`restore.floating_position`
-
-Restores the saved floating X/Y position.
-
-`restore.tiled_width`
-
-Restores the width of normal tiled windows.
-
-`restore.tiled_height`
-
-Restores tiled window height.
-
-`restore.maximized`
-
-Restores maximized tiled columns with niri's `maximize-column` action.
-
-`restore.fullscreen`
-
-Restores fullscreen windows with niri's `fullscreen-window` action.
-
-`detection.fullscreen_tolerance_px`
-
-Tolerance used when comparing a saved tiled window size to the output size.
-
-`detection.maximized_width_tolerance_px`
-
-Tolerance used when deciding whether a tiled window was effectively a maximized
-column.
-
-### Finding App IDs
+## Finding App IDs
 
 Use niri's window list:
 
@@ -189,7 +151,7 @@ niri msg --json windows
 
 Look for the `app_id` field, then add it to `apps.include` or `apps.exclude`.
 
-For example, only manage Nautilus and kitty:
+Only manage these two apps:
 
 ```json
 {
@@ -200,7 +162,7 @@ For example, only manage Nautilus and kitty:
 }
 ```
 
-Or manage everything except a browser:
+Manage everything except one app:
 
 ```json
 {
@@ -211,62 +173,62 @@ Or manage everything except a browser:
 }
 ```
 
-## How Maximized and Fullscreen Detection Works
+## How Learning Works
 
-niri's IPC exposes window size and floating state, but it does not currently
-send explicit `is_maximized` or `is_fullscreen` booleans for normal windows.
+The daemon learns geometry in two ways:
 
-The daemon handles that by comparing the saved tiled size to the output size:
+- on `WindowClosed`, using the last cached geometry for that window
+- on `WindowLayoutsChanged`, when `tracking.live_updates` is enabled
+
+Live updates are enabled by default. That means if an app is open, you resize
+it, and then open another window for the same app, the new window gets restored to the
+current open window's size.
+
+State-file writes from live updates are debounced by
+`tracking.live_save_delay_ms`, but in-memory state is updated immediately.
+
+## Maximized and Fullscreen Detection
+
+niri's IPC exposes window size and floating state, but not explicit
+`is_maximized` or `is_fullscreen` booleans for normal tiled windows.
+
+The daemon handles this by comparing tiled size to output size:
 
 - fullscreen: width and height are both very close to the output size
 - maximized: width is very close to the output width
 
-Those checks are controlled by the `detection` config values. If a normal large
-window is detected as maximized, lower `maximized_width_tolerance_px`. If a
-maximized column is missed, raise it.
+Those checks are controlled by the `detection` config values.
 
-## Live Updates
+When maximized or fullscreen state is detected, restore uses niri actions instead
+of raw saved dimensions:
 
-With the default config, geometry is also learned while windows are still open:
+- maximized: `maximize-column`
+- fullscreen: `fullscreen-window`
 
-```json
-{
-  "tracking": {
-    "live_updates": true,
-    "live_save_delay_ms": 500
-  }
-}
-```
-
-niri sends `WindowLayoutsChanged` events when window layout information changes.
-The daemon uses those events to update the app's in-memory geometry right away.
-That means if Nautilus is open, you resize it, and then open another Nautilus
-window, the new window can restore to the current open window's size.
-
-The state file write is debounced with `live_save_delay_ms` so dragging a window
-resize handle does not write to disk for every single layout event. Set it to
-`0` if you want every live update written immediately.
-
-Set `live_updates` to `false` if you only want geometry learned when windows
-close.
+This matters for mixed-monitor setups. A maximized window learned on a 1080p
+output should restore as maximized on a 2K or portrait output, not as a fixed
+1080p-sized column.
 
 ## Output Adaptation
 
 With the default config, normal window sizes are adapted to the current output.
-The daemon stores the logical output size where a geometry was learned, then
-scales the saved width and height to the output where the app opens next.
+The daemon stores `output_width` and `output_height` with each learned geometry,
+then scales the saved width and height to the output where the app opens next.
+
+Example:
+
+- saved window: `1200x800`
+- saved output: `1920x1080`
+- current output: `1080x1920`
+- restored size: about `675x1422`
+
+Floating positions are scaled too when
+`restore.adapt_floating_position_to_output` is enabled.
+
 Older state entries without `output_width` and `output_height` keep using exact
 logical pixels until the daemon learns that app again.
 
-For example, a 1200x800 normal window saved on a 1920x1080 landscape monitor
-opens around 675x1422 on a 1080x1920 portrait monitor. Floating positions are
-scaled too, then clamped so the floating window stays inside the current output.
-
-Maximized and fullscreen windows do not use raw saved dimensions for the main
-restore. They use niri actions instead: `maximize-column` and
-`fullscreen-window`.
-
-Disable size adaptation if you prefer exact logical pixels:
+Disable output adaptation if you prefer exact logical pixels:
 
 ```json
 {
@@ -288,7 +250,6 @@ Example:
 
 ```json
 {
-  "version": 1,
   "apps": {
     "org.gnome.Nautilus": {
       "height": 1024,
@@ -299,7 +260,8 @@ Example:
       "updated_at": "2026-05-31T08:00:00+00:00",
       "width": 1904
     }
-  }
+  },
+  "version": 1
 }
 ```
 
@@ -371,6 +333,34 @@ systemctl --user enable --now niri-window-geometry.service
 
 If you cloned the repo somewhere else, update `ExecStart`.
 
+## CLI
+
+```text
+usage: daemon.py [-h] [--config-file CONFIG_FILE] [--state-file STATE_FILE]
+                 [--dry-run] [--print-default-config] [--verbose]
+```
+
+`--config-file PATH`
+
+Use a config file outside the default config path.
+
+`--state-file PATH`
+
+Use a state file outside the default state path.
+
+`--dry-run`
+
+Log intended restore commands and state writes without moving windows or writing
+state.
+
+`--print-default-config`
+
+Print the built-in default config and exit.
+
+`--verbose`
+
+Enable debug logging.
+
 ## Uninstall
 
 If you used niri autostart, remove or comment out the line you added:
@@ -409,15 +399,6 @@ rm -rf ~/.local/state/niri-window-geometry
 Keep the state directory if you plan to reinstall and want the old app sizes
 back.
 
-## CLI
-
-```text
-usage: daemon.py [-h] [--config-file CONFIG_FILE] [--state-file STATE_FILE]
-                 [--dry-run] [--print-default-config] [--verbose]
-```
-
-`--dry-run` logs what would happen without moving windows or writing state.
-
 ## Development
 
 ```text
@@ -437,7 +418,7 @@ test_daemon.py
 config.example.json
 ```
 
-Important classes:
+Important classes and modules:
 
 - `WindowRestoreDaemon`: event handling and restore logic
 - `WindowGeometry`: the saved geometry record
@@ -446,6 +427,7 @@ Important classes:
 - `StateStore`: JSON state file
 - `NiriClient`: wrapper around `niri msg`
 - `ShutdownController`: signal-aware shutdown helper
+- `ipc.py`: raw niri JSON parsing
 
 Run tests:
 
@@ -473,6 +455,20 @@ niri msg --json windows
 
 Then check `apps.include` and `apps.exclude`.
 
+Also run with `--verbose` and confirm the daemon logs:
+
+```text
+Live updates are enabled
+```
+
+### The daemon does not learn an already-open window
+
+Make sure `tracking.live_updates` is enabled. The default is `true`.
+
+If the app was learned before output adaptation existed, close or resize it once
+while the daemon is running so the state file gets `output_width` and
+`output_height`.
+
 ### Maximized windows restore as plain large windows
 
 Increase the maximized width tolerance:
@@ -499,6 +495,12 @@ Increase the fullscreen tolerance:
 
 ### Floating position is wrong after changing monitors
 
-Floating positions are saved in niri logical coordinates. After changing
-monitor layout, scale, or resolution, delete that app from the state file and
-let the daemon learn it again.
+Output adaptation handles most monitor size and orientation changes. If a
+floating position is still wrong, let the daemon learn the app again by moving
+or resizing that app while the daemon is running.
+
+If old state is still causing trouble, remove that app's entry from:
+
+```text
+~/.local/state/niri-window-geometry/state.json
+```
