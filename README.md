@@ -115,6 +115,14 @@ python3 daemon.py --config-file /path/to/config.json
   },
   "restore_delay_ms": 150,
   "tracking": {
+    "dialog_max_height_px": 360,
+    "dialog_max_width_px": 900,
+    "dialog_title_patterns": [
+      "\\?$",
+      "^(?:Exit|Quit|Abort|Retry|Ignore|Discard)$"
+    ],
+    "ignore_dialog_like_windows": true,
+    "ignore_title_patterns": [],
     "live_save_delay_ms": 500,
     "live_updates": true
   }
@@ -136,6 +144,11 @@ python3 daemon.py --config-file /path/to/config.json
 | `apps.exclude` | `[]` | App IDs to ignore. Useful for apps where restore feels wrong. |
 | `tracking.live_updates` | `true` | Learns geometry from open windows as their layouts change. |
 | `tracking.live_save_delay_ms` | `500` | Debounces state-file writes after live layout changes. Use `0` to write immediately. |
+| `tracking.ignore_dialog_like_windows` | `true` | Skips small floating windows when the same app has another window open or was previously seen as a tiled/larger window. Catches dialogs even when the main window closed to tray. |
+| `tracking.dialog_max_width_px` | `900` | Maximum width for the dialog-like window check. |
+| `tracking.dialog_max_height_px` | `360` | Maximum height for the dialog-like window check. |
+| `tracking.dialog_title_patterns` | `["\\?$", "^(?:Exit\|Quit\|Abort\|Retry\|Ignore\|Discard)$"]` | Built-in title patterns for dialog detection. Only applies to small floating windows. Set to `[]` to disable. |
+| `tracking.ignore_title_patterns` | `[]` | User-defined regex title patterns to unconditionally skip from both restore and save. |
 | `restore.size` | `true` | Enables width and height restore. |
 | `restore.tiled_width` | `true` | Restores tiled width. Best effort because niri has no `--id` for column width. |
 | `restore.tiled_height` | `true` | Restores tiled height. |

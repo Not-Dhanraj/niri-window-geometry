@@ -40,6 +40,7 @@ def window_payload(
     workspace_id=4,
     x=None,
     y=None,
+    title=None,
 ):
     layout = {
         "tile_size": {"w": width, "h": height},
@@ -51,6 +52,7 @@ def window_payload(
     return {
         "id": window_id,
         "app_id": app_id,
+        "title": title,
         "workspace_id": workspace_id,
         "is_focused": is_focused,
         "is_floating": is_floating,
@@ -837,6 +839,283 @@ class WindowRestoreDaemonTests(unittest.TestCase):
             self.assertTrue(saved.is_floating)
             self.assertEqual((saved.width, saved.height), (640, 480))
             self.assertEqual((saved.floating_x, saved.floating_y), (30, 40))
+
+    def test_window_tracking_is_removed_on_close(self):
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["org.gnome.Nautilus"] = WindowGeometry(width=1200, height=800, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(store, niri_client, config=DaemonConfig(restore_delay_ms=0))
+
+        daemon.handle_event({"WindowOpenedOrChanged": {"window": window_payload(window_id=12)}})
+        self.assertIn(12, daemon.windows)
+        self.assertIn(12, daemon.window_generations)
+        self.assertIn(12, daemon.restored_window_ids)
+
+        daemon.handle_event({"WindowClosed": {"id": 12}})
+
+        self.assertNotIn(12, daemon.windows)
+        self.assertNotIn(12, daemon.window_generations)
+        self.assertNotIn(12, daemon.restored_window_ids)
+        self.assertNotIn(12, daemon.ignored_window_ids)
+
+    def test_dialog_like_secondary_window_is_not_restored_or_saved(self):
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["code"] = WindowGeometry(width=1904, height=1024, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store,
+            niri_client,
+            config=DaemonConfig(restore_delay_ms=0, live_updates=True, live_save_delay_ms=0),
+        )
+
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=10,
+                        app_id="code",
+                        width=1904,
+                        height=1024,
+                        is_floating=False,
+                    )
+                }
+            }
+        )
+        niri_client.dry_run_commands.clear()
+
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=11,
+                        app_id="code",
+                        title="Undo all edits?",
+                        width=534,
+                        height=167,
+                        is_floating=True,
+                    )
+                }
+            }
+        )
+        daemon.handle_event(
+            {
+                "WindowLayoutsChanged": {
+                    "changes": {
+                        "11": {
+                            "window_size": {"w": 534, "h": 167},
+                            "tile_size": {"w": 534, "h": 167},
+                            "tile_pos_in_workspace_view": {"x": 693, "y": 477},
+                        }
+                    }
+                }
+            }
+        )
+        daemon.handle_event({"WindowClosed": {"id": 11}})
+
+        self.assertEqual(niri_client.dry_run_commands, [])
+        saved = store.get("code")
+        self.assertIsNotNone(saved)
+        assert saved is not None
+        self.assertEqual((saved.width, saved.height), (1904, 1024))
+
+    def test_dialog_from_closed_app_is_ignored(self):
+        """A dialog that opens after the main window closed (tray scenario)."""
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["Electron20"] = WindowGeometry(width=1904, height=1024, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store,
+            niri_client,
+            config=DaemonConfig(restore_delay_ms=0, live_updates=True, live_save_delay_ms=0),
+        )
+
+        # Main window opens and closes (tray minimize)
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=10,
+                        app_id="Electron20",
+                        width=1904,
+                        height=1024,
+                        is_floating=False,
+                    )
+                }
+            }
+        )
+        daemon.handle_event({"WindowClosed": {"id": 10}})
+        niri_client.dry_run_commands.clear()
+
+        # Dialog opens from tray — no other Electron20 window in self.windows,
+        # but the store has the tiled main window geometry.
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=83,
+                        app_id="Electron20",
+                        title="Exit?",
+                        width=328,
+                        height=83,
+                        is_floating=True,
+                    )
+                }
+            }
+        )
+        daemon.handle_event({"WindowClosed": {"id": 83}})
+
+        self.assertEqual(niri_client.dry_run_commands, [])
+        saved = store.get("Electron20")
+        self.assertIsNotNone(saved)
+        assert saved is not None
+        self.assertEqual((saved.width, saved.height), (1904, 1024))
+
+    def test_cross_app_id_dialog_caught_by_built_in_title_pattern(self):
+        """WALC: main window app_id='walc', dialog app_id='Electron20' with title 'Exit?'."""
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["walc"] = WindowGeometry(width=948, height=1024, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store,
+            niri_client,
+            config=DaemonConfig(restore_delay_ms=0, live_updates=True, live_save_delay_ms=0),
+        )
+
+        # Main WALC window opens
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=104,
+                        app_id="walc",
+                        title="WALC",
+                        width=948,
+                        height=1024,
+                        is_floating=False,
+                    )
+                }
+            }
+        )
+        niri_client.dry_run_commands.clear()
+
+        # Dialog opens with a different app_id — no way to link via app_id,
+        # but the title "Exit?" matches the built-in `\?$` pattern.
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=105,
+                        app_id="Electron20",
+                        title="Exit?",
+                        width=328,
+                        height=83,
+                        is_floating=True,
+                    )
+                }
+            }
+        )
+        daemon.handle_event({"WindowClosed": {"id": 105}})
+
+        self.assertEqual(niri_client.dry_run_commands, [])
+        saved = store.get("walc")
+        self.assertIsNotNone(saved)
+        assert saved is not None
+        self.assertEqual((saved.width, saved.height), (948, 1024))
+        self.assertIsNone(store.get("Electron20"))
+
+    def test_single_word_action_title_is_treated_as_dialog(self):
+        """A small floating window titled 'Discard' from a tray is a dialog."""
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["myapp"] = WindowGeometry(width=1904, height=1024, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store,
+            niri_client,
+            config=DaemonConfig(restore_delay_ms=0, live_updates=True, live_save_delay_ms=0),
+        )
+
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=1,
+                        app_id="myapp",
+                        title="Discard",
+                        width=300,
+                        height=100,
+                        is_floating=True,
+                    )
+                }
+            }
+        )
+
+        self.assertEqual(niri_client.dry_run_commands, [])
+
+    def test_large_tiled_window_with_question_mark_title_is_not_ignored(self):
+        """A large tiled window titled 'Ready?' should NOT be treated as a dialog.
+        The built-in title patterns only fire for small floating windows."""
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["SetupTool"] = WindowGeometry(width=1200, height=800, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store,
+            niri_client,
+            config=DaemonConfig(restore_delay_ms=0, live_updates=True, live_save_delay_ms=0),
+        )
+
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=1,
+                        app_id="SetupTool",
+                        title="Ready?",
+                        width=1200,
+                        height=800,
+                        is_floating=False,
+                    )
+                }
+            }
+        )
+
+        # Should still restore — it's a large tiled window, not a dialog.
+        self.assertNotEqual(niri_client.dry_run_commands, [])
+
+    def test_ignored_title_pattern_is_not_restored_or_saved(self):
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["code"] = WindowGeometry(width=1904, height=1024, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store,
+            niri_client,
+            config=DaemonConfig(
+                restore_delay_ms=0,
+                live_updates=True,
+                live_save_delay_ms=0,
+                ignore_title_patterns=(r"^Undo all edits\?",),
+            ),
+        )
+
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=1,
+                        app_id="code",
+                        title="Undo all edits?",
+                        width=900,
+                        height=600,
+                    )
+                }
+            }
+        )
+        daemon.handle_event({"WindowClosed": {"id": 1}})
+
+        self.assertEqual(niri_client.dry_run_commands, [])
+        saved = store.get("code")
+        self.assertIsNotNone(saved)
+        assert saved is not None
+        self.assertEqual((saved.width, saved.height), (1904, 1024))
 
     def test_window_without_app_id_is_ignored(self):
         store = StateStore(Path("/tmp/not-written.json"), dry_run=True)

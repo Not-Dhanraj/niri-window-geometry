@@ -18,6 +18,10 @@ def cached_window_from_payload(payload: Any) -> WindowSnapshot | None:
     if not isinstance(app_id, str) or not app_id:
         app_id = None
 
+    title = payload.get("title")
+    if not isinstance(title, str) or not title:
+        title = None
+
     is_floating = payload.get("is_floating")
     if not isinstance(is_floating, bool):
         is_floating = None
@@ -32,6 +36,7 @@ def cached_window_from_payload(payload: Any) -> WindowSnapshot | None:
         workspace_id=workspace_id,
         is_focused=is_focused,
         geometry=geometry,
+        title=title,
     )
 
 

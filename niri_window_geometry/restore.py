@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from typing import Any, Callable
@@ -42,6 +43,7 @@ class WindowRestoreDaemon:
         self.window_generations: dict[int, int] = {}
         self._next_generation = 0
         self.workspace_outputs: dict[int, str] = {}
+        self.ignored_window_ids: set[int] = set()
         self.restored_window_ids: set[int] = set()
         self._live_save_timer: threading.Timer | None = None
 
@@ -83,6 +85,9 @@ class WindowRestoreDaemon:
                 else:
                     next_generations[window_id] = self._next_window_generation()
             self.window_generations = next_generations
+            self.ignored_window_ids = {
+                window.id for window in windows_by_id.values() if self.should_ignore_window(window)
+            }
             self.restored_window_ids.intersection_update(windows_by_id)
             for window in windows_by_id.values():
                 live_geometry = self.live_geometry_for(window)
@@ -126,6 +131,18 @@ class WindowRestoreDaemon:
             else:
                 generation = self.window_generations.get(snapshot.id)
 
+            should_ignore = snapshot.id in self.ignored_window_ids or self.should_ignore_window(snapshot)
+            if should_ignore:
+                self.ignored_window_ids.add(snapshot.id)
+            elif previous is None:
+                self.ignored_window_ids.discard(snapshot.id)
+
+        if previous is None:
+            logging.info("Window opened: %s ignored=%s", self.window_summary(snapshot), should_ignore)
+
+        if should_ignore:
+            return
+
         if previous is None:
             self.dispatch_restore(snapshot, generation)
         else:
@@ -154,8 +171,11 @@ class WindowRestoreDaemon:
                     snapshot.workspace_id,
                     snapshot.is_focused,
                     geometry,
+                    snapshot.title,
                 )
                 self.windows[window_id] = updated
+                if window_id in self.ignored_window_ids:
+                    continue
                 live_geometry = self.live_geometry_for(updated)
                 app_id = updated.app_id
                 if app_id is not None and live_geometry is not None:
@@ -173,6 +193,10 @@ class WindowRestoreDaemon:
             snapshot = self.windows.pop(window_id, None)
             self.window_generations.pop(window_id, None)
             self.restored_window_ids.discard(window_id)
+            ignored = window_id in self.ignored_window_ids
+            self.ignored_window_ids.discard(window_id)
+            if ignored:
+                return
             app_id = snapshot.app_id if snapshot is not None else None
             if snapshot is None or snapshot.geometry is None or app_id is None or not self.config.allows_app(app_id):
                 return
@@ -191,6 +215,8 @@ class WindowRestoreDaemon:
         if not self.config.live_updates:
             return None
         if window.geometry is None or not self.config.allows_app(window.app_id):
+            return None
+        if window.id in self.ignored_window_ids:
             return None
         return self.geometry_with_mode(window)
 
@@ -248,6 +274,97 @@ class WindowRestoreDaemon:
         self._next_generation += 1
         return self._next_generation
 
+    def should_ignore_window(self, window: WindowSnapshot) -> bool:
+        if self.title_is_ignored(window.title):
+            return True
+        if not self.config.ignore_dialog_like_windows:
+            return False
+        if window.app_id is None or window.geometry is None or not window.geometry.is_floating:
+            return False
+        if window.geometry.width > self.config.dialog_max_width_px:
+            return False
+        if window.geometry.height > self.config.dialog_max_height_px:
+            return False
+
+        if self.has_other_window_for_app(window):
+            return True
+
+        if self.title_looks_like_dialog(window.title):
+            return True
+
+        saved = self.store.get(window.app_id)
+        if saved is not None:
+            if not saved.is_floating:
+                return True
+            if saved.width > window.geometry.width * 1.5:
+                return True
+            if saved.height > window.geometry.height * 1.5:
+                return True
+
+        return False
+
+    def title_is_ignored(self, title: str | None) -> bool:
+        if title is None:
+            return False
+        for pattern in self.config.ignore_title_patterns:
+            try:
+                if re.search(pattern, title):
+                    return True
+            except re.error as exc:
+                logging.warning("Ignoring invalid title pattern %r: %s", pattern, exc)
+        return False
+
+    def title_looks_like_dialog(self, title: str | None) -> bool:
+        if title is None:
+            return False
+        for pattern in self.config.dialog_title_patterns:
+            try:
+                if re.search(pattern, title):
+                    return True
+            except re.error as exc:
+                logging.warning("Ignoring invalid dialog title pattern %r: %s", pattern, exc)
+        return False
+
+    def has_other_window_for_app(self, window: WindowSnapshot) -> bool:
+        if window.app_id is None:
+            return False
+        return any(
+            other.id != window.id and other.app_id == window.app_id
+            for other in self.windows.values()
+        )
+
+    def window_summary(self, window: WindowSnapshot) -> str:
+        parts = [
+            f"id={window.id}",
+            f"app_id={self.log_value(window.app_id)}",
+            f"title={self.log_value(window.title)}",
+            f"workspace={window.workspace_id if window.workspace_id is not None else 'unknown'}",
+            f"focused={window.is_focused}",
+        ]
+        if window.geometry is None:
+            parts.append("geometry=unknown")
+        else:
+            parts.append(self.geometry_summary(window.geometry))
+            parts.append(f"detected_mode={self.current_mode(window)}")
+        return " ".join(parts)
+
+    def geometry_summary(self, geometry: WindowGeometry) -> str:
+        parts = [
+            f"size={geometry.width}x{geometry.height}",
+            f"floating={geometry.is_floating}",
+            f"mode={geometry.mode}",
+        ]
+        if geometry.floating_x is not None and geometry.floating_y is not None:
+            parts.append(f"pos={geometry.floating_x},{geometry.floating_y}")
+        if geometry.output_width is not None and geometry.output_height is not None:
+            parts.append(f"output={geometry.output_width}x{geometry.output_height}")
+        return " ".join(parts)
+
+    def log_value(self, value: str | None) -> str:
+        if value is None:
+            return "unknown"
+        return repr(value)
+
     def dispatch_restore(self, window: WindowSnapshot, generation: int | None) -> None:
         if self.sync_restores:
             self.restore_window(window, generation)
@@ -259,7 +376,12 @@ class WindowRestoreDaemon:
     def restore_window(self, window: WindowSnapshot, generation: int | None = None) -> None:
         app_id = window.app_id
         with self._lock:
-            if app_id is None or window.id in self.restored_window_ids or not self.config.allows_app(app_id):
+            if (
+                app_id is None
+                or window.id in self.restored_window_ids
+                or window.id in self.ignored_window_ids
+                or not self.config.allows_app(app_id)
+            ):
                 return
             if generation is None:
                 generation = self.window_generations.get(window.id)
@@ -280,18 +402,13 @@ class WindowRestoreDaemon:
                 self.restored_window_ids.discard(window.id)
                 logging.info("Window %s closed before restore could apply", window.id)
                 return
+            if latest_window.id in self.ignored_window_ids:
+                self.restored_window_ids.discard(window.id)
+                logging.debug("Skipping restore for ignored window %s", window.id)
+                return
             if not self._restore_is_current(window, generation, latest_window, latest_generation):
                 logging.info("Skipping stale restore for window %s", window.id)
                 return
-
-        logging.info(
-            "Restoring %s geometry for window %s: %dx%d floating=%s",
-            latest_window.app_id,
-            latest_window.id,
-            geometry.width,
-            geometry.height,
-            geometry.is_floating,
-        )
 
         target_id = latest_window.id
         with self._restore_command_lock:
@@ -302,6 +419,10 @@ class WindowRestoreDaemon:
                     self.restored_window_ids.discard(target_id)
                     logging.info("Window %s closed before restore commands could apply", target_id)
                     return
+                if latest_window.id in self.ignored_window_ids:
+                    self.restored_window_ids.discard(target_id)
+                    logging.debug("Skipping restore commands for ignored window %s", target_id)
+                    return
                 if not self._restore_is_current(window, generation, latest_window, latest_generation):
                     logging.info("Skipping stale restore commands for window %s", target_id)
                     return
@@ -310,6 +431,14 @@ class WindowRestoreDaemon:
                 current_mode = self.current_mode(latest_window)
 
             restore_geometry = self.geometry_for_restore(geometry, latest_window, saved_mode)
+            logging.info(
+                "Applying restore: window=(%s) current_mode=%s saved_mode=%s saved=(%s) target=(%s)",
+                self.window_summary(latest_window),
+                current_mode,
+                saved_mode,
+                self.geometry_summary(geometry),
+                self.geometry_summary(restore_geometry),
+            )
             self._run_restore_commands(latest_window, restore_geometry, saved_mode, current_mode)
 
     def _restore_is_current(

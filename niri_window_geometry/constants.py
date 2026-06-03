@@ -24,6 +24,13 @@ DEFAULT_LIVE_UPDATES = True
 DEFAULT_LIVE_SAVE_DELAY_MS = 500
 DEFAULT_ADAPT_TO_OUTPUT = True
 DEFAULT_ADAPT_FLOATING_POSITION_TO_OUTPUT = True
+DEFAULT_IGNORE_DIALOG_LIKE_WINDOWS = True
+DEFAULT_DIALOG_MAX_WIDTH_PX = 900
+DEFAULT_DIALOG_MAX_HEIGHT_PX = 360
+DEFAULT_DIALOG_TITLE_PATTERNS: tuple[str, ...] = (
+    r"\?$",
+    r"^(?:Exit|Quit|Abort|Retry|Ignore|Discard)$",
+)
 DEFAULT_FULLSCREEN_TOLERANCE_PX = 2
 DEFAULT_MAXIMIZED_WIDTH_TOLERANCE_PX = 32
 MODE_NORMAL = "normal"
@@ -57,5 +64,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tracking": {
         "live_updates": DEFAULT_LIVE_UPDATES,
         "live_save_delay_ms": DEFAULT_LIVE_SAVE_DELAY_MS,
+        "ignore_dialog_like_windows": DEFAULT_IGNORE_DIALOG_LIKE_WINDOWS,
+        "dialog_max_width_px": DEFAULT_DIALOG_MAX_WIDTH_PX,
+        "dialog_max_height_px": DEFAULT_DIALOG_MAX_HEIGHT_PX,
+        "dialog_title_patterns": list(DEFAULT_DIALOG_TITLE_PATTERNS),
+        "ignore_title_patterns": [],
     },
 }

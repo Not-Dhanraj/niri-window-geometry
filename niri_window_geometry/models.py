@@ -75,6 +75,7 @@ class WindowSnapshot:
     workspace_id: int | None
     is_focused: bool
     geometry: WindowGeometry | None
+    title: str | None = None
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,11 @@ from .constants import (
     DEFAULT_ADAPT_FLOATING_POSITION_TO_OUTPUT,
     DEFAULT_ADAPT_TO_OUTPUT,
     DEFAULT_CONFIG,
+    DEFAULT_DIALOG_MAX_HEIGHT_PX,
+    DEFAULT_DIALOG_MAX_WIDTH_PX,
+    DEFAULT_DIALOG_TITLE_PATTERNS,
     DEFAULT_FULLSCREEN_TOLERANCE_PX,
+    DEFAULT_IGNORE_DIALOG_LIKE_WINDOWS,
     DEFAULT_LIVE_SAVE_DELAY_MS,
     DEFAULT_LIVE_UPDATES,
     DEFAULT_MAXIMIZED_WIDTH_TOLERANCE_PX,
@@ -38,6 +42,11 @@ class DaemonConfig:
     maximized_width_tolerance_px: int = DEFAULT_MAXIMIZED_WIDTH_TOLERANCE_PX
     live_updates: bool = DEFAULT_LIVE_UPDATES
     live_save_delay_ms: int = DEFAULT_LIVE_SAVE_DELAY_MS
+    ignore_dialog_like_windows: bool = DEFAULT_IGNORE_DIALOG_LIKE_WINDOWS
+    dialog_max_width_px: int = DEFAULT_DIALOG_MAX_WIDTH_PX
+    dialog_max_height_px: int = DEFAULT_DIALOG_MAX_HEIGHT_PX
+    dialog_title_patterns: tuple[str, ...] = DEFAULT_DIALOG_TITLE_PATTERNS
+    ignore_title_patterns: tuple[str, ...] = ()
 
     @classmethod
     def load(cls, path: Path | None) -> "DaemonConfig":
@@ -97,6 +106,16 @@ class DaemonConfig:
         )
         if maximized_width_tolerance_px is None:
             maximized_width_tolerance_px = DEFAULT_MAXIMIZED_WIDTH_TOLERANCE_PX
+        dialog_max_width_px = parse_int(
+            tracking.get("dialog_max_width_px", tracking_defaults.get("dialog_max_width_px"))
+        )
+        if dialog_max_width_px is None:
+            dialog_max_width_px = DEFAULT_DIALOG_MAX_WIDTH_PX
+        dialog_max_height_px = parse_int(
+            tracking.get("dialog_max_height_px", tracking_defaults.get("dialog_max_height_px"))
+        )
+        if dialog_max_height_px is None:
+            dialog_max_height_px = DEFAULT_DIALOG_MAX_HEIGHT_PX
 
         return cls(
             enabled=bool(raw.get("enabled", DEFAULT_CONFIG["enabled"])),
@@ -123,6 +142,17 @@ class DaemonConfig:
             maximized_width_tolerance_px=max(0, maximized_width_tolerance_px),
             live_updates=bool(tracking.get("live_updates", tracking_defaults.get("live_updates"))),
             live_save_delay_ms=max(0, live_save_delay_ms),
+            ignore_dialog_like_windows=bool(
+                tracking.get("ignore_dialog_like_windows", tracking_defaults.get("ignore_dialog_like_windows"))
+            ),
+            dialog_max_width_px=max(1, dialog_max_width_px),
+            dialog_max_height_px=max(1, dialog_max_height_px),
+            ignore_title_patterns=tuple(parse_string_list(tracking.get("ignore_title_patterns"))),
+            dialog_title_patterns=tuple(
+                parse_string_list(
+                    tracking.get("dialog_title_patterns", tracking_defaults.get("dialog_title_patterns"))
+                )
+            ) or DEFAULT_DIALOG_TITLE_PATTERNS,
         )
 
     def allows_app(self, app_id: str | None) -> bool:
