@@ -30,6 +30,13 @@ DEFAULT_DIALOG_MAX_HEIGHT_PX = 360
 DEFAULT_DIALOG_TITLE_PATTERNS: tuple[str, ...] = (
     r"\?$",
     r"^(?:Exit|Quit|Abort|Retry|Ignore|Discard)$",
+    r"^(?:Open|Save|Export|Import)(?:\s|$)",
+    r"^Save As$",
+    r"^(?:Preferences|Settings|Options|Properties|Configuration)$",
+    r"^(?:About|Log [Ii]n|Sign [Ii]n|Authenticate|Authentication)$",
+    r"^(?:Confirm|Warning|Error|Info(?:rmation)?)$",
+    r"^(?:Find|Replace|Search|Go to|Print|Color)(?:\s|$)",
+    r"^(?:Choose|Select|Pick)\s",
 )
 DEFAULT_FULLSCREEN_TOLERANCE_PX = 2
 DEFAULT_MAXIMIZED_WIDTH_TOLERANCE_PX = 32

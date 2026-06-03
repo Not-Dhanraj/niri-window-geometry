@@ -25,7 +25,14 @@
     "dialog_max_width_px": 900,
     "dialog_title_patterns": [
       "\\?$",
-      "^(?:Exit|Quit|Abort|Retry|Ignore|Discard)$"
+      "^(?:Exit|Quit|Abort|Retry|Ignore|Discard)$",
+      "^(?:Open|Save|Export|Import)(?:\\s|$)",
+      "^Save As$",
+      "^(?:Preferences|Settings|Options|Properties|Configuration)$",
+      "^(?:About|Log [Ii]n|Sign [Ii]n|Authenticate|Authentication)$",
+      "^(?:Confirm|Warning|Error|Info(?:rmation)?)$",
+      "^(?:Find|Replace|Search|Go to|Print|Color)(?:\\s|$)",
+      "^(?:Choose|Select|Pick)\\s"
     ],
     "ignore_dialog_like_windows": true,
     "ignore_title_patterns": [],

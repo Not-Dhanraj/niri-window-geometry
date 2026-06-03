@@ -20,6 +20,7 @@ NC='\033[0m'
 
 DRY_RUN=false
 FORCE=false
+LOCAL=false
 MODE=""
 
 say()  { printf "${GREEN}==>${NC} %s\n" "$*"; }
@@ -29,7 +30,7 @@ header() { printf "\n${BOLD}%s${NC}\n" "$*"; }
 
 usage() {
     cat <<EOF
-Usage: bash install.sh <MODE> [--dry-run] [--force]
+Usage: bash install.sh <MODE> [--dry-run] [--force] [--local]
 
 Modes:
   install     Copy files, create config, calibrate, and set up autostart.
@@ -42,6 +43,7 @@ Modes:
 Options:
   --dry-run   Show what would be done without actually doing it.
   --force     Skip all prompts and use defaults (niri autostart, no verbose).
+  --local     Use local code instead of fetching from GitHub (for update).
   --help, -h  Show this help.
 
 Run this from the root of the cloned repository:
@@ -58,6 +60,9 @@ parse_args() {
                 ;;
             --dry-run)
                 DRY_RUN=true
+                ;;
+            --local)
+                LOCAL=true
                 ;;
             --force)
                 FORCE=true
@@ -362,6 +367,61 @@ do_install() {
     fi
 }
 
+restart_daemon() {
+    local service_active=false
+    if systemctl --user is-active niri-window-geometry.service &>/dev/null; then
+        service_active=true
+    fi
+
+    if $service_active; then
+        say "Restarting systemd service..."
+        if $DRY_RUN; then
+            say "[dry-run] systemctl --user restart niri-window-geometry.service"
+        else
+            systemctl --user restart niri-window-geometry.service
+            say "systemd service restarted."
+        fi
+        return
+    fi
+
+    if pgrep -f "daemon.py" >/dev/null 2>&1; then
+        say "Stopping running daemon..."
+        if $DRY_RUN; then
+            say "[dry-run] pkill -f daemon.py"
+        else
+            pkill -f "daemon.py" 2>/dev/null || true
+            sleep 0.5
+        fi
+
+        local niri_config="${HOME}/.config/niri/config.kdl"
+        if [[ -f "$niri_config" ]] && grep -qF "daemon.py" "$niri_config" 2>/dev/null; then
+            say "Reloading niri config to restart daemon..."
+            if $DRY_RUN; then
+                say "[dry-run] niri msg action load-config-file"
+            else
+                niri msg action load-config-file 2>/dev/null || true
+                say "Daemon restarted via niri config reload."
+            fi
+        else
+            say "Starting daemon directly..."
+            if $DRY_RUN; then
+                say "[dry-run] python3 ${INSTALL_DIR}/daemon.py &"
+            else
+                nohup python3 "${INSTALL_DIR}/daemon.py" >/dev/null 2>&1 &
+                say "Daemon started (pid $!)."
+            fi
+        fi
+    else
+        say "Starting daemon..."
+        if $DRY_RUN; then
+            say "[dry-run] python3 ${INSTALL_DIR}/daemon.py &"
+        else
+            nohup python3 "${INSTALL_DIR}/daemon.py" >/dev/null 2>&1 &
+            say "Daemon started (pid $!)."
+        fi
+    fi
+}
+
 do_update() {
     header "Updating niri-window-geometry"
 
@@ -370,8 +430,32 @@ do_update() {
         exit 1
     fi
 
-    # Fetch from GitHub into the installed directory
-    if [[ -d "${INSTALL_DIR}/.git" ]]; then
+    if $LOCAL; then
+        if [[ ! -f "./daemon.py" ]] || [[ ! -d "./niri_window_geometry" ]]; then
+            err "Run with --local from the root of the niri-window-geometry repository."
+            exit 1
+        fi
+
+        local src
+        src="$(realpath .)"
+        if [[ "$src" == "$(realpath "${INSTALL_DIR}" 2>/dev/null || echo /nonexistent)" ]]; then
+            say "Already in the install directory. Nothing to copy."
+        else
+            say "Copying local code to ${INSTALL_DIR} ..."
+            if $DRY_RUN; then
+                say "[dry-run] rsync local files to ${INSTALL_DIR}"
+            else
+                cp -f ./daemon.py "${INSTALL_DIR}/daemon.py"
+                cp -rf ./niri_window_geometry/ "${INSTALL_DIR}/niri_window_geometry/"
+                if [[ -d "./scripts" ]]; then
+                    cp -rf ./scripts/ "${INSTALL_DIR}/scripts/"
+                fi
+                if [[ -f "./config.example.json" ]]; then
+                    cp -f ./config.example.json "${INSTALL_DIR}/config.example.json"
+                fi
+            fi
+        fi
+    elif [[ -d "${INSTALL_DIR}/.git" ]]; then
         say "Fetching latest changes from GitHub..."
         if $DRY_RUN; then
             say "[dry-run] git -C ${INSTALL_DIR} fetch origin"
@@ -402,9 +486,9 @@ do_update() {
     fi
 
     say "Update complete. Config and calibration offsets are preserved."
-    say "Restart the daemon to apply:"
-    say "  If using niri autostart: niri msg action load-config-file"
-    say "  If using systemd: systemctl --user restart niri-window-geometry"
+
+    restart_daemon
+
     if $DRY_RUN; then
         say "(dry-run: nothing was actually changed)"
     fi

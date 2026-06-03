@@ -283,15 +283,16 @@ class WindowRestoreDaemon:
             return False
         if window.app_id is None or window.geometry is None or not window.geometry.is_floating:
             return False
+
+        if self.title_looks_like_dialog(window.title):
+            return True
+
         if window.geometry.width > self.config.dialog_max_width_px:
             return False
         if window.geometry.height > self.config.dialog_max_height_px:
             return False
 
         if self.has_other_window_for_app(window):
-            return True
-
-        if self.title_looks_like_dialog(window.title):
             return True
 
         saved = self.store.get(window.app_id)

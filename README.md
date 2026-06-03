@@ -58,7 +58,8 @@ Other install script modes:
 
 | Command | Description |
 | --- | --- |
-| `bash install.sh update` | Fetch latest from GitHub. Preserves config and calibration. |
+| `bash install.sh update` | Fetch latest from GitHub and restart the daemon. Preserves config and calibration. |
+| `bash install.sh update --local` | Update from local code instead of GitHub. Useful for development. |
 | `bash install.sh reinstall` | Remove and re-install. Keeps config, re-runs calibration. |
 | `bash install.sh calibrate` | Only run the working-area calibration tool. |
 | `bash install.sh remove` | Remove everything installed by this script. |
@@ -66,6 +67,7 @@ Other install script modes:
 
 Pass `--dry-run` to preview what any mode would do without making changes.
 Pass `--force` to skip all confirmation prompts.
+Pass `--local` with `update` to use local code instead of fetching from GitHub.
 
 <details>
 <summary><strong>Manual Install</strong></summary>
@@ -175,7 +177,14 @@ python3 daemon.py --config-file /path/to/config.json
     "dialog_max_width_px": 900,
     "dialog_title_patterns": [
       "\\?$",
-      "^(?:Exit|Quit|Abort|Retry|Ignore|Discard)$"
+      "^(?:Exit|Quit|Abort|Retry|Ignore|Discard)$",
+      "^(?:Open|Save|Export|Import)(?:\\s|$)",
+      "^Save As$",
+      "^(?:Preferences|Settings|Options|Properties|Configuration)$",
+      "^(?:About|Log [Ii]n|Sign [Ii]n|Authenticate|Authentication)$",
+      "^(?:Confirm|Warning|Error|Info(?:rmation)?)$",
+      "^(?:Find|Replace|Search|Go to|Print|Color)(?:\\s|$)",
+      "^(?:Choose|Select|Pick)\\s"
     ],
     "ignore_dialog_like_windows": true,
     "ignore_title_patterns": [],
@@ -200,8 +209,8 @@ python3 daemon.py --config-file /path/to/config.json
 | `tracking.live_save_delay_ms` | `500` | Debounces state-file writes after live layout changes. Use `0` to write immediately. |
 | `tracking.ignore_dialog_like_windows` | `true` | Skips small floating windows when the same app has another window open or was previously seen as a tiled/larger window. Catches dialogs even when the main window closed to tray. |
 | `tracking.dialog_max_width_px` | `900` | Maximum width for the dialog-like window check. |
-| `tracking.dialog_max_height_px` | `360` | Maximum height for the dialog-like window check. |
-| `tracking.dialog_title_patterns` | `["\\?$", "^(?:Exit\|Quit\|Abort\|Retry\|Ignore\|Discard)$"]` | Built-in title patterns for dialog detection. Only applies to small floating windows. Set to `[]` to disable. |
+| `tracking.dialog_max_height_px` | `360` | Maximum height for the dialog-like heuristic check. Title-matched dialogs are caught regardless of size. |
+| `tracking.dialog_title_patterns` | _(see default config)_ | Built-in title patterns for dialog detection. Matches common dialog titles like Open, Save, Preferences, etc. Only applies to small floating windows. Set to `[]` to disable. |
 | `tracking.ignore_title_patterns` | `[]` | User-defined regex title patterns to unconditionally skip from both restore and save. |
 | `restore.size` | `true` | Enables width and height restore. |
 | `restore.tiled_width` | `true` | Restores tiled width. Best effort because niri has no `--id` for column width. |
