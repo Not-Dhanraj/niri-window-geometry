@@ -12,7 +12,6 @@ from .utils import shell_join
 class NiriClient:
     def __init__(self, dry_run: bool = False) -> None:
         self.dry_run = dry_run
-        # Kept only for dry-run/tests; production runs should not accumulate command history.
         self.dry_run_commands: list[list[str]] = []
 
     def run(self, action_args: list[str]) -> None:

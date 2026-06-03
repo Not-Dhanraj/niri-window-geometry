@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +47,7 @@ class DaemonConfig:
     dialog_max_height_px: int = DEFAULT_DIALOG_MAX_HEIGHT_PX
     dialog_title_patterns: tuple[str, ...] = DEFAULT_DIALOG_TITLE_PATTERNS
     ignore_title_patterns: tuple[str, ...] = ()
+    working_area_offsets: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path | None) -> "DaemonConfig":
@@ -153,6 +154,7 @@ class DaemonConfig:
                     tracking.get("dialog_title_patterns", tracking_defaults.get("dialog_title_patterns"))
                 )
             ) or DEFAULT_DIALOG_TITLE_PATTERNS,
+            working_area_offsets=parse_working_area_offsets(raw.get("working_area_offsets")),
         )
 
     def allows_app(self, app_id: str | None) -> bool:
@@ -172,3 +174,19 @@ def config_section(name: str) -> dict[str, Any]:
     if not isinstance(section, dict):
         raise KeyError(f"DEFAULT_CONFIG section {name!r} is missing or invalid")
     return section
+
+
+def parse_working_area_offsets(raw: Any) -> dict[str, tuple[int, int]]:
+    if not isinstance(raw, dict):
+        return {}
+    offsets: dict[str, tuple[int, int]] = {}
+    for output_name, offset_data in raw.items():
+        if not isinstance(output_name, str) or not output_name:
+            continue
+        if not isinstance(offset_data, dict):
+            continue
+        x = parse_int(offset_data.get("x"))
+        y = parse_int(offset_data.get("y"))
+        if x is not None and y is not None:
+            offsets[output_name] = (x, y)
+    return offsets

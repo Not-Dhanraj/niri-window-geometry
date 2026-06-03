@@ -203,11 +203,13 @@ class WindowRestoreDaemon:
             geometry = self.geometry_with_mode(snapshot)
 
         logging.info(
-            "Saving %s geometry: %dx%d floating=%s",
+            "Saving %s geometry: %dx%d floating=%s pos=%s,%s",
             app_id,
             geometry.width,
             geometry.height,
             geometry.is_floating,
+            geometry.floating_x,
+            geometry.floating_y,
         )
         self.store.put(app_id, geometry)
 
@@ -440,6 +442,13 @@ class WindowRestoreDaemon:
                 self.geometry_summary(restore_geometry),
             )
             self._run_restore_commands(latest_window, restore_geometry, saved_mode, current_mode)
+            # Do NOT cache the restore target position here.
+            # restore_geometry uses working-area coordinates, but geometry_with_mode
+            # expects workspace-view coordinates (what niri events report) and applies
+            # the working_area_offset. Caching working-area coords here would cause
+            # double-application of the offset if the window is saved before the next
+            # niri event updates the position. Let niri events naturally update
+            # self.windows with the correct workspace-view coordinates.
 
     def _restore_is_current(
         self,
@@ -522,13 +531,27 @@ class WindowRestoreDaemon:
         assert window.geometry is not None
         mode = self.classify_mode(window.geometry, window.workspace_id)
         output = self.output_for_workspace(window.workspace_id)
+        floating_x = window.geometry.floating_x
+        floating_y = window.geometry.floating_y
+        if (
+            window.geometry.is_floating
+            and floating_x is not None
+            and floating_y is not None
+            and output is not None
+        ):
+            output_name = self._output_name(output)
+            if output_name is not None:
+                offset = self.config.working_area_offsets.get(output_name)
+                if offset is not None:
+                    floating_x = floating_x + offset[0]
+                    floating_y = floating_y + offset[1]
         return WindowGeometry(
             width=window.geometry.width,
             height=window.geometry.height,
             is_floating=window.geometry.is_floating,
             mode=mode,
-            floating_x=window.geometry.floating_x,
-            floating_y=window.geometry.floating_y,
+            floating_x=floating_x,
+            floating_y=floating_y,
             output_width=output.width if output is not None else None,
             output_height=output.height if output is not None else None,
             updated_at=window.geometry.updated_at,
@@ -631,3 +654,9 @@ class WindowRestoreDaemon:
             if output_name is not None and output_name in self.outputs:
                 return self.outputs[output_name]
         return self._single_output
+
+    def _output_name(self, output: OutputSize) -> str | None:
+        for name, candidate in self.outputs.items():
+            if candidate is output:
+                return name
+        return None

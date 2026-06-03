@@ -1,43 +1,76 @@
 # niri-window-geometry
 
-`niri-window-geometry` is a small Python daemon for
-[niri](https://github.com/YaLTeR/niri). It remembers window geometry by niri
-`app_id` and restores it when the same app opens again.
-niri places new windows at default sizes. If you always resize an app a
-certain way, or want an app to reopen as a floating window, this daemon
-remembers those choices and restores them automatically.
+A small Python daemon for [niri](https://github.com/YaLTeR/niri) that
+remembers window geometry by `app_id` and restores it when the same app opens
+again.
 
-The daemon remembers useful per-app window state:
+niri places new windows at default sizes. If you always resize an app a certain
+way, or want an app to reopen as a floating window, this daemon remembers those
+choices and restores them automatically.
 
-- tiled width and height
-- floating state
-- floating position
-- maximized column state
-- fullscreen state
-- the output size where the geometry was learned
+**What it remembers:**
+
+- Tiled width and height
+- Floating state and position
+- Maximized column state
+- Fullscreen state
+- The output size where the geometry was learned
 
 It does **not** remember workspaces. Reopened apps still appear on the current
 workspace according to normal niri behavior.
 
-The code uses only the Python standard library.
+The code uses only the Python standard library - no external dependencies.
 
 ## Showcase
+
 https://github.com/user-attachments/assets/f52835c2-5315-4ea8-aed3-ec825e8df05c
-
-
 
 ## Requirements
 
-- niri with `niri msg` IPC available
+- [niri](https://github.com/YaLTeR/niri) with `niri msg` IPC available
 - Python 3.10 or newer
-- a running niri session
+- A running niri session
 
 This project was developed against niri `26.04`.
 
-## Install
+## Quick Start
 
-Clone the repository somewhere stable. The examples below use
-`~/.local/share/niri-window-geometry`.
+The install script handles everything: cloning the repo, creating a config,
+running calibration, and setting up autostart.
+
+```bash
+git clone https://github.com/Not-Dhanraj/niri-window-geometry.git
+cd niri-window-geometry
+bash install.sh install
+```
+
+The script will walk you through:
+
+1. **Copying** the repo to `~/.local/share/niri-window-geometry`
+2. **Creating** a default config at `~/.config/niri-window-geometry/config.json`
+3. **Calibrating** working-area offsets for each monitor (for accurate floating
+   window positioning)
+4. **Setting up autostart** - choose between niri config, systemd, or manual
+   start
+5. **Verbose logging** - optionally enable debug output
+
+Other install script modes:
+
+| Command | Description |
+| --- | --- |
+| `bash install.sh update` | Fetch latest from GitHub. Preserves config and calibration. |
+| `bash install.sh reinstall` | Remove and re-install. Keeps config, re-runs calibration. |
+| `bash install.sh calibrate` | Only run the working-area calibration tool. |
+| `bash install.sh remove` | Remove everything installed by this script. |
+| `bash install.sh status` | Show what is currently installed and where. |
+
+Pass `--dry-run` to preview what any mode would do without making changes.
+Pass `--force` to skip all confirmation prompts.
+
+<details>
+<summary><strong>Manual Install</strong></summary>
+
+If you prefer to set things up yourself, clone the repository somewhere stable:
 
 ```bash
 mkdir -p ~/.local/share
@@ -45,18 +78,41 @@ git clone https://github.com/Not-Dhanraj/niri-window-geometry.git ~/.local/share
 cd ~/.local/share/niri-window-geometry
 ```
 
-
 Run it once from a terminal inside niri:
 
 ```bash
 python3 daemon.py --verbose
 ```
 
-The daemon writes learned state here:
+The daemon writes learned state to `~/.local/state/niri-window-geometry/state.json`.
 
-```text
-~/.local/state/niri-window-geometry/state.json
+**Autostart with niri config** - add to `~/.config/niri/config.kdl`:
+
+```kdl
+spawn-sh-at-startup "python3 ~/.local/share/niri-window-geometry/daemon.py"
 ```
+
+Then reload: `niri msg action load-config-file`
+
+**Autostart with systemd** - create `~/.config/systemd/user/niri-window-geometry.service`:
+
+```ini
+[Unit]
+Description=Restore niri window geometry
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/share/niri-window-geometry/daemon.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+```
+
+Then enable: `systemctl --user daemon-reload && systemctl --user enable --now niri-window-geometry.service`
+
+</details>
 
 ## Configuration
 
@@ -131,10 +187,8 @@ python3 daemon.py --config-file /path/to/config.json
 
 </details>
 
-## Config Keys
-
 <details>
-<summary><strong>View Config Keys</strong></summary>
+<summary><strong>Config Keys</strong></summary>
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -203,10 +257,25 @@ Manage everything except one app:
 
 </details>
 
-<details>
-<summary><strong>Advanced Mechanics: Learning, Detection, and Output Adaptation</strong></summary>
+## CLI Reference
 
-## How Learning Works
+```text
+usage: daemon.py [-h] [--config-file CONFIG_FILE] [--state-file STATE_FILE]
+                 [--dry-run] [--print-default-config] [--verbose]
+```
+
+| Flag | Description |
+| --- | --- |
+| `--config-file PATH` | Use a config file outside the default config path. |
+| `--state-file PATH` | Use a state file outside the default state path. |
+| `--dry-run` | Log intended restore commands and state writes without moving windows or writing state. |
+| `--print-default-config` | Print the built-in default config and exit. |
+| `--verbose` | Enable debug logging. |
+
+## Advanced
+
+<details>
+<summary><strong>How Learning Works</strong></summary>
 
 The daemon learns geometry in two ways:
 
@@ -220,7 +289,10 @@ current open window's size.
 State-file writes from live updates are debounced by
 `tracking.live_save_delay_ms`, but in-memory state is updated immediately.
 
-## Maximized and Fullscreen Detection
+</details>
+
+<details>
+<summary><strong>Maximized and Fullscreen Detection</strong></summary>
 
 niri's IPC exposes window size and floating state, but not explicit
 `is_maximized` or `is_fullscreen` booleans for normal tiled windows.
@@ -242,7 +314,10 @@ This matters for mixed-monitor setups. A maximized window learned on a 1080p
 output should restore as maximized on a 2K or portrait output, not as a fixed
 1080p-sized column.
 
-## Output Adaptation
+</details>
+
+<details>
+<summary><strong>Output Adaptation</strong></summary>
 
 With the default config, normal window sizes are adapted to the current output.
 The daemon stores `output_width` and `output_height` with each learned geometry,
@@ -273,10 +348,8 @@ Disable output adaptation if you prefer exact logical pixels:
 
 </details>
 
-## State File
-
 <details>
-<summary><strong>View State File Example</strong></summary>
+<summary><strong>State File</strong></summary>
 
 Default state path:
 
@@ -309,138 +382,30 @@ Workspace information is intentionally absent.
 
 </details>
 
-## Start From niri Config
+## Calibration
 
-You can start the daemon from niri with `spawn-sh-at-startup`.
+The calibration tool detects working-area offsets caused by panels and bars on
+each monitor. This ensures floating window positions are saved and restored
+accurately.
 
-For a single-file config, add this to `~/.config/niri/config.kdl`:
-
-```kdl
-spawn-sh-at-startup "python3 ~/.local/share/niri-window-geometry/daemon.py"
-```
-
-If your config uses included files, put it in your startup file, for example
-`~/.config/niri/cfg/autostart.kdl`:
-
-```kdl
-spawn-sh-at-startup "python3 ~/.local/share/niri-window-geometry/daemon.py --verbose"
-```
-
-If `~` is not expanded on your setup, use the absolute path:
-
-```kdl
-spawn-sh-at-startup "python3 /home/YOUR_USERNAME/.local/share/niri-window-geometry/daemon.py"
-```
-
-Reload niri config:
+Calibration runs automatically during `install` and `reinstall`. To re-run it
+manually:
 
 ```bash
-niri msg action load-config-file
+bash install.sh calibrate
 ```
 
-For automatic restart after a crash, use a systemd user service instead.
-
-## Start With systemd
-
-Create this file:
-
-```text
-~/.config/systemd/user/niri-window-geometry.service
-```
-
-Service contents:
-
-```ini
-[Unit]
-Description=Restore niri window geometry
-After=graphical-session.target
-
-[Service]
-ExecStart=/usr/bin/python3 %h/.local/share/niri-window-geometry/daemon.py
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=default.target
-```
-
-Enable it:
+Or directly:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now niri-window-geometry.service
+python3 ~/.local/share/niri-window-geometry/scripts/calibrate.py
 ```
 
-If you cloned the repo somewhere else, update `ExecStart`.
+**Re-run calibration when:**
 
-## CLI
-
-```text
-usage: daemon.py [-h] [--config-file CONFIG_FILE] [--state-file STATE_FILE]
-                 [--dry-run] [--print-default-config] [--verbose]
-```
-
-`--config-file PATH`
-
-Use a config file outside the default config path.
-
-`--state-file PATH`
-
-Use a state file outside the default state path.
-
-`--dry-run`
-
-Log intended restore commands and state writes without moving windows or writing
-state.
-
-`--print-default-config`
-
-Print the built-in default config and exit.
-
-`--verbose`
-
-Enable debug logging.
-
-## Uninstall
-
-If you used niri autostart, remove or comment out the line you added:
-
-```kdl
-// spawn-sh-at-startup "python3 ~/.local/share/niri-window-geometry/daemon.py"
-```
-
-Then reload niri:
-
-```bash
-niri msg action load-config-file
-```
-
-If you used systemd:
-
-```bash
-systemctl --user disable --now niri-window-geometry.service
-rm ~/.config/systemd/user/niri-window-geometry.service
-systemctl --user daemon-reload
-```
-
-Remove the cloned repo:
-
-```bash
-rm -rf ~/.local/share/niri-window-geometry
-```
-
-Optionally remove config and learned state:
-
-```bash
-rm -rf ~/.config/niri-window-geometry
-rm -rf ~/.local/state/niri-window-geometry
-```
-
-Keep the state directory if you plan to reinstall and want the old app sizes
-back.
-
-<details>
-<summary><strong>Troubleshooting</strong></summary>
+- You add, remove, or rearrange monitors
+- You change panel/bar height or position
+- Floating windows appear offset after restore
 
 ## Troubleshooting
 
@@ -496,10 +461,15 @@ If old state is still causing trouble, remove that app's entry from:
 ~/.local/state/niri-window-geometry/state.json
 ```
 
-</details>
+## Uninstall
 
-<details>
-<summary><strong>Development</strong></summary>
+```bash
+bash install.sh remove
+```
+
+This stops the daemon, removes the install directory, cleans up the niri config
+autostart line, removes the systemd service, and optionally removes config and
+learned state.
 
 ## Development
 
@@ -518,18 +488,10 @@ niri_window_geometry/
   utils.py
 test_daemon.py
 config.example.json
+install.sh
+scripts/
+  calibrate.py
 ```
-
-Important classes and modules:
-
-- `WindowRestoreDaemon`: event handling and restore logic
-- `WindowGeometry`: the saved geometry record
-- `WindowSnapshot`: one window as reported by niri
-- `OutputSize`: logical output size
-- `StateStore`: JSON state file
-- `NiriClient`: wrapper around `niri msg`
-- `ShutdownController`: signal-aware shutdown helper
-- `ipc.py`: raw niri JSON parsing
 
 Run tests:
 
@@ -537,12 +499,8 @@ Run tests:
 python3 -m unittest -v
 ```
 
-Compile check:
-
-```bash
-python3 -m py_compile daemon.py test_daemon.py niri_window_geometry/*.py
-```
-
 The tests use mocked niri events and do not need a live niri session.
 
-</details>
+## License
+
+[GPL-3.0](LICENSE)

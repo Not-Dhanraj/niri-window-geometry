@@ -929,7 +929,6 @@ class WindowRestoreDaemonTests(unittest.TestCase):
             config=DaemonConfig(restore_delay_ms=0, live_updates=True, live_save_delay_ms=0),
         )
 
-        # Main window opens and closes (tray minimize)
         daemon.handle_event(
             {
                 "WindowOpenedOrChanged": {
@@ -981,7 +980,6 @@ class WindowRestoreDaemonTests(unittest.TestCase):
             config=DaemonConfig(restore_delay_ms=0, live_updates=True, live_save_delay_ms=0),
         )
 
-        # Main WALC window opens
         daemon.handle_event(
             {
                 "WindowOpenedOrChanged": {
@@ -1126,6 +1124,174 @@ class WindowRestoreDaemonTests(unittest.TestCase):
         daemon.handle_event({"WindowClosed": {"id": 1}})
 
         self.assertEqual(store.apps, {})
+
+    def test_working_area_offset_applied_in_geometry_with_mode_on_close(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = StateStore(Path(temp_dir) / "state.json")
+            niri_client = NiriClient(dry_run=True)
+            daemon = WindowRestoreDaemon(
+                store,
+                niri_client,
+                config=DaemonConfig(
+                    restore_delay_ms=0,
+                    working_area_offsets={"eDP-2": (0, 40)},
+                ),
+                outputs={"eDP-2": OutputSize(width=1920, height=1080)},
+            )
+            daemon.handle_event({"WorkspacesChanged": {"workspaces": [{"id": 4, "output": "eDP-2"}]}})
+            daemon.handle_event(
+                {
+                    "WindowOpenedOrChanged": {
+                        "window": window_payload(
+                            is_floating=True, x=996, y=272, workspace_id=4,
+                        )
+                    }
+                }
+            )
+            daemon.handle_event({"WindowClosed": {"id": 1}})
+
+            saved = store.get("org.gnome.Nautilus")
+            self.assertIsNotNone(saved)
+            assert saved is not None
+            # Working-area to output: y=272 + 40 bar = 312 (output coords for move-floating-window)
+            self.assertEqual(saved.floating_y, 312)
+            self.assertEqual(saved.floating_x, 996)
+
+    def test_working_area_offset_not_applied_for_unknown_output(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = StateStore(Path(temp_dir) / "state.json")
+            niri_client = NiriClient(dry_run=True)
+            daemon = WindowRestoreDaemon(
+                store,
+                niri_client,
+                config=DaemonConfig(
+                    restore_delay_ms=0,
+                    working_area_offsets={"DP-5": (0, 40)},
+                ),
+                outputs={"eDP-2": OutputSize(width=1920, height=1080)},
+            )
+            daemon.handle_event({"WorkspacesChanged": {"workspaces": [{"id": 4, "output": "eDP-2"}]}})
+            daemon.handle_event(
+                {
+                    "WindowOpenedOrChanged": {
+                        "window": window_payload(
+                            is_floating=True, x=100, y=200, workspace_id=4,
+                        )
+                    }
+                }
+            )
+            daemon.handle_event({"WindowClosed": {"id": 1}})
+
+            saved = store.get("org.gnome.Nautilus")
+            self.assertIsNotNone(saved)
+            assert saved is not None
+            # Offset is for DP-5, not eDP-2 → no correction
+            self.assertEqual(saved.floating_y, 200)
+            self.assertEqual(saved.floating_x, 100)
+
+    def test_working_area_offset_with_x_drift(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = StateStore(Path(temp_dir) / "state.json")
+            niri_client = NiriClient(dry_run=True)
+            daemon = WindowRestoreDaemon(
+                store,
+                niri_client,
+                config=DaemonConfig(
+                    restore_delay_ms=0,
+                    working_area_offsets={"eDP-2": (10, 40)},
+                ),
+                outputs={"eDP-2": OutputSize(width=1920, height=1080)},
+            )
+            daemon.handle_event({"WorkspacesChanged": {"workspaces": [{"id": 4, "output": "eDP-2"}]}})
+            daemon.handle_event(
+                {
+                    "WindowOpenedOrChanged": {
+                        "window": window_payload(
+                            is_floating=True, x=106, y=272, workspace_id=4,
+                        )
+                    }
+                }
+            )
+            daemon.handle_event({"WindowClosed": {"id": 1}})
+
+            saved = store.get("org.gnome.Nautilus")
+            self.assertIsNotNone(saved)
+            assert saved is not None
+            # Working-area to output: x=106+10=116, y=272+40=312
+            self.assertEqual(saved.floating_x, 116)
+            self.assertEqual(saved.floating_y, 312)
+
+    def test_cached_geometry_updated_after_restore(self):
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["org.gnome.Nautilus"] = WindowGeometry(
+            width=1200, height=800, is_floating=True,
+            floating_x=160, floating_y=90,
+        )
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(store, niri_client, config=DaemonConfig(restore_delay_ms=0))
+
+        daemon.handle_event(
+            {"WindowOpenedOrChanged": {"window": window_payload(is_floating=False)}}
+        )
+
+        # The cached geometry should NOT be overwritten with restore target coords.
+        # It retains the original event geometry; niri events will naturally update
+        # self.windows with the correct workspace-view coordinates, preventing
+        # double-application of working_area_offsets.
+        cached = daemon.windows.get(1)
+        self.assertIsNotNone(cached)
+        assert cached is not None
+        assert cached.geometry is not None
+        self.assertFalse(cached.geometry.is_floating)
+        self.assertIsNone(cached.geometry.floating_x)
+        self.assertIsNone(cached.geometry.floating_y)
+
+    def test_tiled_window_geometry_with_mode_skips_offset(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = StateStore(Path(temp_dir) / "state.json")
+            niri_client = NiriClient(dry_run=True)
+            daemon = WindowRestoreDaemon(
+                store,
+                niri_client,
+                config=DaemonConfig(
+                    restore_delay_ms=0,
+                    working_area_offsets={"eDP-2": (0, 40)},
+                ),
+                outputs={"eDP-2": OutputSize(width=1920, height=1080)},
+            )
+            daemon.handle_event({"WorkspacesChanged": {"workspaces": [{"id": 4, "output": "eDP-2"}]}})
+            daemon.handle_event(
+                {
+                    "WindowOpenedOrChanged": {
+                        "window": window_payload(is_floating=False, workspace_id=4)
+                    }
+                }
+            )
+            daemon.handle_event({"WindowClosed": {"id": 1}})
+
+            saved = store.get("org.gnome.Nautilus")
+            self.assertIsNotNone(saved)
+            assert saved is not None
+            # Tiled window: no offset applied since is_floating is False
+            self.assertFalse(saved.is_floating)
+            self.assertIsNone(saved.floating_x)
+            self.assertIsNone(saved.floating_y)
+
+    def test_working_area_offsets_parsed_from_json(self):
+        config = DaemonConfig.from_json(
+            {"working_area_offsets": {"eDP-2": {"x": 0, "y": 40}, "DP-1": {"x": 5, "y": 0}}}
+        )
+        self.assertEqual(config.working_area_offsets, {"eDP-2": (0, 40), "DP-1": (5, 0)})
+
+    def test_working_area_offsets_defaults_to_empty(self):
+        config = DaemonConfig.from_json({})
+        self.assertEqual(config.working_area_offsets, {})
+
+    def test_working_area_offsets_rejects_invalid_format(self):
+        config = DaemonConfig.from_json(
+            {"working_area_offsets": {"bad": "not-a-dict", "also_bad": {"x": "nope", "y": 40}}}
+        )
+        self.assertEqual(config.working_area_offsets, {})
 
 
 class FakeProcess:
