@@ -47,6 +47,7 @@ class DaemonConfig:
     dialog_max_height_px: int = DEFAULT_DIALOG_MAX_HEIGHT_PX
     dialog_title_patterns: tuple[str, ...] = DEFAULT_DIALOG_TITLE_PATTERNS
     ignore_title_patterns: tuple[str, ...] = ()
+    ignore_app_title_patterns: tuple[tuple[str, str], ...] = ()
     working_area_offsets: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     @classmethod
@@ -149,6 +150,9 @@ class DaemonConfig:
             dialog_max_width_px=max(1, dialog_max_width_px),
             dialog_max_height_px=max(1, dialog_max_height_px),
             ignore_title_patterns=tuple(parse_string_list(tracking.get("ignore_title_patterns"))),
+            ignore_app_title_patterns=tuple(
+                parse_app_title_patterns(tracking.get("ignore_app_title_patterns"))
+            ),
             dialog_title_patterns=tuple(
                 parse_string_list(
                     tracking.get("dialog_title_patterns", tracking_defaults.get("dialog_title_patterns"))
@@ -174,6 +178,20 @@ def config_section(name: str) -> dict[str, Any]:
     if not isinstance(section, dict):
         raise KeyError(f"DEFAULT_CONFIG section {name!r} is missing or invalid")
     return section
+
+
+def parse_app_title_patterns(raw: Any) -> list[tuple[str, str]]:
+    if not isinstance(raw, list):
+        return []
+    patterns: list[tuple[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        app_id = item.get("app_id")
+        title = item.get("title")
+        if isinstance(app_id, str) and app_id and isinstance(title, str) and title:
+            patterns.append((app_id, title))
+    return patterns
 
 
 def parse_working_area_offsets(raw: Any) -> dict[str, tuple[int, int]]:

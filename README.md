@@ -1,6 +1,6 @@
 # niri-window-geometry
 
-A small Python daemon for [niri](https://github.com/YaLTeR/niri) that
+A small Python daemon for [niri](https://github.com/niri-wm/niri) that
 remembers window geometry by `app_id` and restores it when the same app opens
 again.
 
@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/f52835c2-5315-4ea8-aed3-ec825e8df05c
 
 ## Requirements
 
-- [niri](https://github.com/YaLTeR/niri) with `niri msg` IPC available
+- [niri](https://github.com/niri-wm/niri) with `niri msg` IPC available
 - Python 3.10 or newer
 - A running niri session
 

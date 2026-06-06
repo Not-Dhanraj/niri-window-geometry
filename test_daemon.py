@@ -535,10 +535,52 @@ class WindowRestoreDaemonTests(unittest.TestCase):
         niri_client = NiriClient(dry_run=True)
         daemon = WindowRestoreDaemon(store, niri_client, config=DaemonConfig(restore_delay_ms=0))
 
-        daemon.handle_event({"WindowOpenedOrChanged": {"window": window_payload()}})
+        daemon.handle_event({"WindowOpenedOrChanged": {"window": window_payload(width=900, height=600)}})
         daemon.handle_event({"WindowOpenedOrChanged": {"window": window_payload(width=1300)}})
 
         self.assertEqual(len(niri_client.dry_run_commands), 3)
+
+    def test_restore_skipped_when_tiled_window_already_matches(self):
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["org.gnome.Nautilus"] = WindowGeometry(width=1200, height=800, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(store, niri_client, config=DaemonConfig(restore_delay_ms=0))
+
+        daemon.handle_event(
+            {"WindowOpenedOrChanged": {"window": window_payload(width=1200, height=800, is_floating=False)}}
+        )
+
+        self.assertEqual(niri_client.dry_run_commands, [])
+
+    def test_restore_skipped_when_maximized_window_already_matches(self):
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["org.gnome.Nautilus"] = WindowGeometry(
+            width=1904, height=1024, is_floating=False, mode="maximized",
+        )
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store, niri_client,
+            config=DaemonConfig(restore_delay_ms=0),
+            outputs={"eDP-2": OutputSize(width=1920, height=1080)},
+        )
+
+        daemon.handle_event(
+            {"WindowOpenedOrChanged": {"window": window_payload(width=1904, height=1024, is_floating=False)}}
+        )
+
+        self.assertEqual(niri_client.dry_run_commands, [])
+
+    def test_restore_not_skipped_when_size_differs(self):
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["org.gnome.Nautilus"] = WindowGeometry(width=900, height=700, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(store, niri_client, config=DaemonConfig(restore_delay_ms=0))
+
+        daemon.handle_event(
+            {"WindowOpenedOrChanged": {"window": window_payload(width=1200, height=800, is_floating=False)}}
+        )
+
+        self.assertGreater(len(niri_client.dry_run_commands), 0)
 
     def test_restore_delay_is_applied_before_commands(self):
         sleeps = []
@@ -1068,8 +1110,8 @@ class WindowRestoreDaemonTests(unittest.TestCase):
                         window_id=1,
                         app_id="SetupTool",
                         title="Ready?",
-                        width=1200,
-                        height=800,
+                        width=900,
+                        height=600,
                         is_floating=False,
                     )
                 }
@@ -1114,6 +1156,105 @@ class WindowRestoreDaemonTests(unittest.TestCase):
         self.assertIsNotNone(saved)
         assert saved is not None
         self.assertEqual((saved.width, saved.height), (1904, 1024))
+
+    def test_ignored_app_title_pattern_is_not_restored_or_saved(self):
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["code"] = WindowGeometry(width=1904, height=1024, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store,
+            niri_client,
+            config=DaemonConfig(
+                restore_delay_ms=0,
+                live_updates=True,
+                live_save_delay_ms=0,
+                ignore_app_title_patterns=(("code", r"^Undo all edits\?"),),
+            ),
+        )
+
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=1,
+                        app_id="code",
+                        title="Undo all edits?",
+                        width=900,
+                        height=600,
+                    )
+                }
+            }
+        )
+        daemon.handle_event({"WindowClosed": {"id": 1}})
+
+        self.assertEqual(niri_client.dry_run_commands, [])
+        saved = store.get("code")
+        self.assertIsNotNone(saved)
+        assert saved is not None
+        self.assertEqual((saved.width, saved.height), (1904, 1024))
+
+    def test_app_title_pattern_does_not_ignore_different_app(self):
+        """Same title pattern but different app_id should NOT be ignored."""
+        store = StateStore(Path("/tmp/not-written.json"), dry_run=True)
+        store.apps["other-app"] = WindowGeometry(width=1200, height=800, is_floating=False)
+        niri_client = NiriClient(dry_run=True)
+        daemon = WindowRestoreDaemon(
+            store,
+            niri_client,
+            config=DaemonConfig(
+                restore_delay_ms=0,
+                ignore_app_title_patterns=(("code", r"^Settings$"),),
+            ),
+        )
+
+        daemon.handle_event(
+            {
+                "WindowOpenedOrChanged": {
+                    "window": window_payload(
+                        window_id=1,
+                        app_id="other-app",
+                        title="Settings",
+                        width=800,
+                        height=600,
+                    )
+                }
+            }
+        )
+
+        # Should still restore — the pattern is scoped to "code", not "other-app"
+        self.assertNotEqual(niri_client.dry_run_commands, [])
+
+    def test_ignore_app_title_patterns_parsed_from_json(self):
+        config = DaemonConfig.from_json(
+            {
+                "tracking": {
+                    "ignore_app_title_patterns": [
+                        {"app_id": "code", "title": "^Undo"},
+                        {"app_id": "Electron20", "title": "Exit\\?"},
+                    ]
+                }
+            }
+        )
+        self.assertEqual(
+            config.ignore_app_title_patterns,
+            (("code", "^Undo"), ("Electron20", "Exit\\?")),
+        )
+
+    def test_ignore_app_title_patterns_rejects_invalid_entries(self):
+        config = DaemonConfig.from_json(
+            {
+                "tracking": {
+                    "ignore_app_title_patterns": [
+                        {"app_id": "code"},
+                        {"title": "^Undo"},
+                        "not-a-dict",
+                        {"app_id": "", "title": "^Undo"},
+                        {"app_id": "code", "title": ""},
+                    ]
+                }
+            }
+        )
+        self.assertEqual(config.ignore_app_title_patterns, ())
 
     def test_window_without_app_id_is_ignored(self):
         store = StateStore(Path("/tmp/not-written.json"), dry_run=True)

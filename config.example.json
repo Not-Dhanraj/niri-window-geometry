@@ -36,6 +36,7 @@
     ],
     "ignore_dialog_like_windows": true,
     "ignore_title_patterns": [],
+    "ignore_app_title_patterns": [],
     "live_save_delay_ms": 500,
     "live_updates": true
   }

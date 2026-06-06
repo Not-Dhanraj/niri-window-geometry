@@ -277,6 +277,8 @@ class WindowRestoreDaemon:
         return self._next_generation
 
     def should_ignore_window(self, window: WindowSnapshot) -> bool:
+        if self.title_is_ignored_for_app(window.app_id, window.title):
+            return True
         if self.title_is_ignored(window.title):
             return True
         if not self.config.ignore_dialog_like_windows:
@@ -315,6 +317,22 @@ class WindowRestoreDaemon:
                     return True
             except re.error as exc:
                 logging.warning("Ignoring invalid title pattern %r: %s", pattern, exc)
+        return False
+
+    def title_is_ignored_for_app(self, app_id: str | None, title: str | None) -> bool:
+        if app_id is None or title is None:
+            return False
+        for pattern_app_id, pattern_title in self.config.ignore_app_title_patterns:
+            if app_id != pattern_app_id:
+                continue
+            try:
+                if re.search(pattern_title, title):
+                    return True
+            except re.error as exc:
+                logging.warning(
+                    "Ignoring invalid app title pattern app_id=%r title=%r: %s",
+                    pattern_app_id, pattern_title, exc,
+                )
         return False
 
     def title_looks_like_dialog(self, title: str | None) -> bool:
@@ -434,6 +452,14 @@ class WindowRestoreDaemon:
                 current_mode = self.current_mode(latest_window)
 
             restore_geometry = self.geometry_for_restore(geometry, latest_window, saved_mode)
+
+            if self._geometry_already_matches(latest_window, restore_geometry, saved_mode, current_mode):
+                logging.info(
+                    "Skipping restore (already matches): window=(%s)",
+                    self.window_summary(latest_window),
+                )
+                return
+
             logging.info(
                 "Applying restore: window=(%s) current_mode=%s saved_mode=%s saved=(%s) target=(%s)",
                 self.window_summary(latest_window),
@@ -443,13 +469,6 @@ class WindowRestoreDaemon:
                 self.geometry_summary(restore_geometry),
             )
             self._run_restore_commands(latest_window, restore_geometry, saved_mode, current_mode)
-            # Do NOT cache the restore target position here.
-            # restore_geometry uses working-area coordinates, but geometry_with_mode
-            # expects workspace-view coordinates (what niri events report) and applies
-            # the working_area_offset. Caching working-area coords here would cause
-            # double-application of the offset if the window is saved before the next
-            # niri event updates the position. Let niri events naturally update
-            # self.windows with the correct workspace-view coordinates.
 
     def _restore_is_current(
         self,
@@ -462,6 +481,32 @@ class WindowRestoreDaemon:
             original.app_id == latest.app_id
             and (original_generation is None or original_generation == latest_generation)
         )
+
+    def _geometry_already_matches(
+        self,
+        latest_window: WindowSnapshot,
+        restore_geometry: WindowGeometry,
+        saved_mode: str,
+        current_mode: str,
+    ) -> bool:
+        """Return True if the window already matches the restore target.
+
+        Compares size, floating state, and mode. Floating position is excluded
+        because saved coordinates use working-area space while current
+        coordinates use workspace-view space.
+        """
+        current_geo = latest_window.geometry
+        if current_geo is None:
+            return False
+        if current_mode != saved_mode:
+            return False
+        if current_geo.is_floating != restore_geometry.is_floating:
+            return False
+        if current_geo.width != restore_geometry.width:
+            return False
+        if current_geo.height != restore_geometry.height:
+            return False
+        return True
 
     def _run_restore_commands(
         self,

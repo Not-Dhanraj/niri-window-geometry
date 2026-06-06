@@ -76,5 +76,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "dialog_max_height_px": DEFAULT_DIALOG_MAX_HEIGHT_PX,
         "dialog_title_patterns": list(DEFAULT_DIALOG_TITLE_PATTERNS),
         "ignore_title_patterns": [],
+        "ignore_app_title_patterns": [],
     },
 }
